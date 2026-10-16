@@ -1951,8 +1951,15 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     }, [captureScrollAnchor, hasMore, messages.length, session.id, stopLoadMoreAnchorTracking]);
     // useLayoutEffect: runs synchronously after DOM mutation, before browser paint
     // Prevents flash of wrong scroll position, works reliably under transform: scale()
+    const prevDisplayCountRef = useRef(0);
     const displayMessages = useMemo(() => {
-        return [...messages, ...transientMessages]
+        const allMsgs = [...messages, ...transientMessages];
+        // 历史消息已排序，只在新增消息时才重排，避免每次都 O(n log n)
+        if (allMsgs.length === prevDisplayCountRef.current && allMsgs.length > 0) {
+            return allMsgs;
+        }
+        prevDisplayCountRef.current = allMsgs.length;
+        return allMsgs
             .map((msg, index) => ({ msg, index }))
             .sort((a, b) => {
                 const orderDiff = compareChatMessages(a.msg, b.msg);
@@ -3233,21 +3240,23 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                         onStreamDelta: (delta) => {
                             if (!isCurrentGeneration()) return;
                             streamAccumRef.current += delta;
-                            // 群聊全文解析较重：合并到 rAF 下一帧执行，避免一帧多段增量重复解析
+                            // 群聊全文解析较重：合并到 rAF + 200ms 节流，降低卡顿
                             if (streamParseFrameRef.current) return;
                             streamParseFrameRef.current = window.requestAnimationFrame(() => {
-                                streamParseFrameRef.current = 0;
-                                if (!isCurrentGeneration()) return;
-                                const nameToId = new Map(groupCharacters.map(item => [item.name, item.id]));
-                                const rawParts = parseGroupChatResponse(streamAccumRef.current, nameToId);
-                                const parts = rawParts
-                                    .filter(item => item.responseText.trim())
-                                    .map(item => ({
-                                        characterId: item.characterId,
-                                        characterName: item.characterName,
-                                        texts: splitStreamPreviewSegments(cleanStreamText(item.responseText, { stripXmlTags: streamPreviewTagConfig.online, stripLiterals: streamPreviewTagConfig.stripTexts })),
-                                    }));
-                                setStreamPreview({ parts });
+                                setTimeout(() => {
+                                    streamParseFrameRef.current = 0;
+                                    if (!isCurrentGeneration()) return;
+                                    const nameToId = new Map(groupCharacters.map(item => [item.name, item.id]));
+                                    const rawParts = parseGroupChatResponse(streamAccumRef.current, nameToId);
+                                    const parts = rawParts
+                                        .filter(item => item.responseText.trim())
+                                        .map(item => ({
+                                            characterId: item.characterId,
+                                            characterName: item.characterName,
+                                            texts: splitStreamPreviewSegments(cleanStreamText(item.responseText, { stripXmlTags: streamPreviewTagConfig.online, stripLiterals: streamPreviewTagConfig.stripTexts })),
+                                        }));
+                                    setStreamPreview({ parts });
+                                }, 200);
                             });
                         },
                         onTextPart: () => {
@@ -3280,12 +3289,14 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                         onStreamDelta: (delta) => {
                             if (!isCurrentGeneration()) return;
                             streamAccumRef.current += delta;
-                            // 预览更新合并到 rAF 下一帧：每帧最多一次全文净化+setState，避免高频增量卡顿
+                            // 预览更新合并到 rAF + 150ms 节流：减少 setState 频率，降低卡顿
                             if (streamParseFrameRef.current) return;
                             streamParseFrameRef.current = window.requestAnimationFrame(() => {
-                                streamParseFrameRef.current = 0;
-                                if (!isCurrentGeneration()) return;
-                                setStreamPreview({ texts: splitStreamPreviewSegments(cleanStreamText(streamAccumRef.current, { stripXmlTags: streamPreviewTagConfig.online, stripLiterals: streamPreviewTagConfig.stripTexts })) });
+                                setTimeout(() => {
+                                    streamParseFrameRef.current = 0;
+                                    if (!isCurrentGeneration()) return;
+                                    setStreamPreview({ texts: splitStreamPreviewSegments(cleanStreamText(streamAccumRef.current, { stripXmlTags: streamPreviewTagConfig.online, stripLiterals: streamPreviewTagConfig.stripTexts })) });
+                                }, 150);
                             });
                         },
                         onTextPart: () => {
