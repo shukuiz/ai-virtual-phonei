@@ -235,6 +235,7 @@ export function MainApp() {
 
   useEffect(() => {
     let cancelled = false;
+    let fontPrewarmCancelled = false;
 
     // 申请持久化存储：批准后 iOS/安卓不会再因存储压力擅自回收 IndexedDB
     // （摊主钥匙、聊天记录等都存在里面）。静默尽力而为，被拒也无碍。
@@ -251,12 +252,17 @@ export function MainApp() {
       }
       setKvHydrateFailed(false);
 
-      let nextPreparedTheme: PreparedDesktopTheme | null = null;
-      try {
-        nextPreparedTheme = await prepareDesktopThemeForFirstPaint();
-      } catch (error) {
+      // KV 水合完成后才能读主题配置，现在可以并行启动主题资产准备和字体预热
+      const nextPreparedTheme = await prepareDesktopThemeForFirstPaint().catch(error => {
         console.warn("[MainApp] desktop theme preload failed:", error);
-      }
+        return null;
+      });
+
+      // 字体预热：首屏必需的本地字体，推到空闲期执行，设 1.5s 超时到点放行
+      scheduleIdleTask(() => {
+        const timeout = window.setTimeout(() => { fontPrewarmCancelled = true; }, 1500);
+        warmBuiltinFonts(() => fontPrewarmCancelled).finally(() => window.clearTimeout(timeout));
+      });
 
       if (cancelled) return;
       setPreparedDesktopTheme(nextPreparedTheme);

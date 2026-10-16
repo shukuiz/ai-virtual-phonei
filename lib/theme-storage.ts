@@ -247,20 +247,56 @@ export async function getThemeAssetDataUrl(id: string): Promise<string | null> {
 export async function getThemeAssetMap(ids: string[]): Promise<Record<string, string>> {
   const map: Record<string, string> = {};
   const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
-  const rows = await Promise.all(uniqueIds.map((id) => readAssetRecord(id)));
-  rows.forEach((row) => {
-    if (!row) {
-      return;
-    }
-    map[row.id] = row.dataUrl;
-  });
+  if (uniqueIds.length === 0) return map;
+
+  // 批量读取：单连接+单事务，避免逐 id 开关数据库连接的开销
+  const database = await openThemeDb();
+  if (!database) return map;
+
+  try {
+    const transaction = database.transaction(THEME_ASSET_STORE, "readonly");
+    const store = transaction.objectStore(THEME_ASSET_STORE);
+    
+    // 先挂完成回调再发请求，避免竞态（事务可能在 await 前就提交了）
+    const done = runTransactionDone(transaction);
+    const requests = uniqueIds.map(id => runRequest(store.get(id)));
+    const rows = await Promise.all(requests);
+    await done;
+
+    rows.forEach((row) => {
+      if (row && (row as ThemeAssetRecord).id) {
+        const record = row as ThemeAssetRecord;
+        map[record.id] = record.dataUrl;
+      }
+    });
+  } finally {
+    database.close();
+  }
+
   return map;
 }
 
 export async function readThemeAssetRecords(ids: string[]): Promise<ThemeAssetRecord[]> {
   const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
-  const rows = await Promise.all(uniqueIds.map((id) => readAssetRecord(id)));
-  return rows.filter((row): row is ThemeAssetRecord => Boolean(row));
+  if (uniqueIds.length === 0) return [];
+
+  // 批量读取：单连接+单事务
+  const database = await openThemeDb();
+  if (!database) return [];
+
+  try {
+    const transaction = database.transaction(THEME_ASSET_STORE, "readonly");
+    const store = transaction.objectStore(THEME_ASSET_STORE);
+    
+    const done = runTransactionDone(transaction);
+    const requests = uniqueIds.map(id => runRequest(store.get(id)));
+    const rows = await Promise.all(requests);
+    await done;
+
+    return rows.filter((row): row is ThemeAssetRecord => Boolean(row && (row as ThemeAssetRecord).id));
+  } finally {
+    database.close();
+  }
 }
 
 export async function writeThemeAssetRecords(records: ThemeAssetRecord[]): Promise<void> {

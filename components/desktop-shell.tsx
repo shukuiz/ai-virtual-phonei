@@ -1977,24 +1977,45 @@ export function DesktopShell({ initialThemeProfile, initialThemeAssets }: Deskto
     };
   }, [desktopReady]);
 
+  // 主题资产补读：只读取当前未加载的 id，首屏推到空闲期，换肤立即生效
+  const loadedAssetIdsRef = useRef<Set<string>>(new Set(Object.keys(initialThemeAssets ?? {})));
+  const firstAssetLoadRef = useRef(true);
+  
   useEffect(() => {
-    const ids = collectThemeAssetIds(draftTheme);
-    if (ids.length === 0) {
-      return;
-    }
+    const allIds = collectThemeAssetIds(draftTheme);
+    const missingIds = allIds.filter(id => !loadedAssetIdsRef.current.has(id));
+    
+    if (missingIds.length === 0) return;
 
-    let disposed = false;
-    void getThemeAssetMap(ids).then((map) => {
-      if (disposed) {
-        return;
-      }
-      setThemeAssets((previous) => ({ ...previous, ...map }));
-    });
-
-    return () => {
-      disposed = true;
+    const loadAssets = () => {
+      let disposed = false;
+      void getThemeAssetMap(missingIds).then((map) => {
+        if (disposed) return;
+        // 成功获取后记账，避免重复读取
+        Object.keys(map).forEach(id => loadedAssetIdsRef.current.add(id));
+        setThemeAssets((previous) => ({ ...previous, ...map }));
+      });
+      return () => { disposed = true; };
     };
-  }, [draftTheme, themeAssetKey]);
+
+    // 开机首轮补读推到空闲期（带超时兜底）；用户主动换肤立即生效
+    if (firstAssetLoadRef.current && desktopReady) {
+      firstAssetLoadRef.current = false;
+      const idleWindow = window as typeof window & {
+        requestIdleCallback?: (cb: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, options?: { timeout?: number }) => number;
+        cancelIdleCallback?: (handle: number) => void;
+      };
+      if (typeof idleWindow.requestIdleCallback === "function") {
+        const handle = idleWindow.requestIdleCallback(() => loadAssets(), { timeout: 1000 });
+        return () => idleWindow.cancelIdleCallback?.(handle);
+      } else {
+        const timer = window.setTimeout(() => loadAssets(), 200);
+        return () => window.clearTimeout(timer);
+      }
+    } else {
+      return loadAssets();
+    }
+  }, [draftTheme, desktopReady, themeAssetKey]);
 
 
   useEffect(() => {

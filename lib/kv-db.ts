@@ -119,10 +119,18 @@ export function hydrateKvDb(): Promise<void> {
     if (_hydrated || typeof window === "undefined") return Promise.resolve();
     if (_hydratePromise) return _hydratePromise;
     _hydratePromise = (async () => {
-        // Load existing IDB data into cache
+        // Load existing IDB data into cache (分片灌入，避免长任务阻塞开机动画)
         const all = await kvDb.entries.toArray();
-        for (const { key, value } of all) {
-            if (!_cache.has(key)) _cache.set(key, value);
+        const chunkSize = 300;
+        for (let i = 0; i < all.length; i += chunkSize) {
+            const chunk = all.slice(i, i + chunkSize);
+            for (const { key, value } of chunk) {
+                if (!_cache.has(key)) _cache.set(key, value);
+            }
+            // 每处理一批就让出主线程，避免阻塞渲染帧
+            if (i + chunkSize < all.length) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
 
         // Migrate from localStorage
