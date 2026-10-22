@@ -2341,10 +2341,12 @@ function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpa
         setSynthFailed(false);
         synthesizeVoiceForMessage(msg.id, characterId, speechText)
             .then((dataUrl) => {
-                if (onUpdate) onUpdate({ ...msg, mediaUrl: dataUrl, mediaData: { ...msg.mediaData, synthesizedFromText: speechText } });
                 if (!mountedRef.current) return;
                 setSynthesizing(false);
+                // 先出声再落状态：onUpdate 会让整条消息列表重渲染（数组复制 + 全部气泡 diff），
+                // 排在 playSrc 之前等于让用户多等一次列表更新才听到声音。
                 playSrc(dataUrl);
+                onUpdate?.({ ...msg, mediaUrl: dataUrl, mediaData: { ...msg.mediaData, synthesizedFromText: speechText } });
             })
             .catch(() => {
                 if (!mountedRef.current) return;
@@ -2387,7 +2389,7 @@ function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpa
                     />
                 ))}
             </div>
-            <span className="voice-msg-dur">{synthFailed ? "合成失败·点击重试" : `${duration}"`}</span>
+            <span className="voice-msg-dur">{synthesizing ? "合成中…" : synthFailed ? "合成失败·点击重试" : `${duration}"`}</span>
         </div>
     );
 }
