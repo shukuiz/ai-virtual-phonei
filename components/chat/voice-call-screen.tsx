@@ -98,8 +98,13 @@ export function VoiceCallScreen({ session, character, onEnd, onConnect, initiato
     const sttWarningShownRef = useRef(false);
     const subtitleScrollRef = useRef<HTMLDivElement>(null);
     const messagesRef = useRef<ChatMessage[]>([]);
-    const _initUi = resolveUserIdentity(session.contactId, "chat");
-    const userNameRef = useRef<string>(_initUi?.name || "你");
+    // 用户名只在首次挂载解析一次：此前写在 render 里，每次重渲染都要读一遍设置
+    const userNameRef = useRef<string>("你");
+    const userNameInitRef = useRef(false);
+    if (!userNameInitRef.current) {
+        userNameInitRef.current = true;
+        userNameRef.current = resolveUserIdentity(session.contactId, "chat")?.name || "你";
+    }
 
     // Keep refs in sync
     useEffect(() => { stateRef.current = callState; }, [callState]);
@@ -218,38 +223,48 @@ export function VoiceCallScreen({ session, character, onEnd, onConnect, initiato
     useEffect(() => {
         cancelFollowUp(session.id);
 
-        // Resolve user name
-        const ui = resolveUserIdentity(session.contactId, "chat");
-        userNameRef.current = ui?.name || "你";
-
-        // Load existing messages for context
-        messagesRef.current = loadChatMessages(session.id);
-
-        // Insert system message (skip if already exists from strict mode remount)
-        const lastMsg = messagesRef.current[messagesRef.current.length - 1];
-        const initRole = initiator === "character" ? "assistant" : "user";
-        if (!lastMsg || !(lastMsg.content.includes("发起了语音通话"))) {
-            const callMsg = initiator === "character"
-                ? `[我向${userNameRef.current}发起了语音通话]`
-                : `[我向${character.name}发起了语音通话]`;
-            const sysMsg = pushChatMessage({
-                sessionId: session.id,
-                role: initRole,
-                content: callMsg,
-            });
-            messagesRef.current = [...messagesRef.current, sysMsg];
-        }
-
-        // User-initiated: auto-connect after 3s fake dial
-        // Character-initiated: wait for user to accept
+        // 挂载当帧只画界面，存储读取与系统消息写入推到下一帧：
+        // loadChatMessages 在长对话下是同步的几百毫秒，卡在挂载帧里会让
+        // 点击语音通话后的首帧迟迟出不来（表现为点好几次才打开）。
+        let disposed = false;
         let connectTimer: NodeJS.Timeout | undefined;
-        if (initiator !== "character") {
-            connectTimer = setTimeout(() => {
-                setCallState("IDLE");
-            }, 3000);
-        }
+        const rafId = window.requestAnimationFrame(() => {
+            if (disposed) return;
+
+            // Resolve user name
+            const ui = resolveUserIdentity(session.contactId, "chat");
+            userNameRef.current = ui?.name || "你";
+
+            // Load existing messages for context
+            messagesRef.current = loadChatMessages(session.id);
+
+            // Insert system message (skip if already exists from strict mode remount)
+            const lastMsg = messagesRef.current[messagesRef.current.length - 1];
+            const initRole = initiator === "character" ? "assistant" : "user";
+            if (!lastMsg || !(lastMsg.content.includes("发起了语音通话"))) {
+                const callMsg = initiator === "character"
+                    ? `[我向${userNameRef.current}发起了语音通话]`
+                    : `[我向${character.name}发起了语音通话]`;
+                const sysMsg = pushChatMessage({
+                    sessionId: session.id,
+                    role: initRole,
+                    content: callMsg,
+                });
+                messagesRef.current = [...messagesRef.current, sysMsg];
+            }
+
+            // User-initiated: auto-connect after 3s fake dial
+            // Character-initiated: wait for user to accept
+            if (initiator !== "character") {
+                connectTimer = setTimeout(() => {
+                    setCallState("IDLE");
+                }, 3000);
+            }
+        });
 
         return () => {
+            disposed = true;
+            window.cancelAnimationFrame(rafId);
             if (connectTimer) clearTimeout(connectTimer);
             if (timerRef.current) clearInterval(timerRef.current);
         };
