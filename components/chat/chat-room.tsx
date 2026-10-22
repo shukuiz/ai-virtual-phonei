@@ -680,12 +680,13 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     };
 
     const appendText = useCallback((text: string, options?: { focus?: boolean }) => {
-        const nextText = inputTextRef.current + text;
+        const ta = textareaRef.current;
+        if (!ta) return;
+        const nextText = ta.value + text;
+        ta.value = nextText;
         inputTextRef.current = nextText;
         setInputText(nextText);
         requestAnimationFrame(() => {
-            const ta = textareaRef.current;
-            if (!ta) return;
             ta.style.height = "auto";
             ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
             if (options?.focus !== false) ta.focus();
@@ -695,6 +696,8 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     useImperativeHandle(ref, () => ({
         appendText,
         clear: () => {
+            const ta = textareaRef.current;
+            if (ta) ta.value = "";
             inputTextRef.current = "";
             setInputText("");
             resetTextareaHeight();
@@ -707,9 +710,12 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
             onStopGeneration();
             return;
         }
-        const trimmed = inputTextRef.current.trim();
+        const ta = textareaRef.current;
+        if (!ta) return;
+        const trimmed = ta.value.trim();
         if (!trimmed) return;
         if (!onSendText(trimmed)) return;
+        ta.value = "";
         inputTextRef.current = "";
         setInputText("");
         resetTextareaHeight();
@@ -786,7 +792,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
             <textarea
                 ref={textareaRef}
                 rows={1}
-                value={inputText}
+                defaultValue=""
                 onChange={e => {
                     const newValue = e.target.value;
                     const target = e.target;
