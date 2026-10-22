@@ -40,9 +40,11 @@ export function StickerSearchSuggest({ query, characterIds, onSend, onClose }: S
   }, [query]);
 
   // ── 加载自定义贴纸（按会话角色绑定的包），解析出 name → url ──
+  // 懒加载：只在用户实际输入后才触发，避免聚焦时卡顿
   const [customItems, setCustomItems] = useState<StickerSearchItem[]>([]);
   const loadSeqRef = useRef(0);
   useEffect(() => {
+    if (!debouncedQuery) return; // 没输入就不加载
     const seq = ++loadSeqRef.current;
     let cancelled = false;
     (async () => {
@@ -65,10 +67,9 @@ export function StickerSearchSuggest({ query, characterIds, onSend, onClose }: S
     })();
     return () => {
       cancelled = true;
-      // 只清理最后一次加载，避免竞态时旧结果覆盖新结果
       if (loadSeqRef.current === seq) setCustomItems([]);
     };
-  }, [characterIds]);
+  }, [characterIds, debouncedQuery]);
 
   // ── 内置表情包（emoji 兜底） ──
   const builtinItems = useMemo<StickerSearchItem[]>(
