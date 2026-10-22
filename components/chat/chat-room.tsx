@@ -661,6 +661,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     onSendSticker,
 }, ref) {
     const [inputText, setInputText] = useState("");
+    const inputTextRef = useRef("");
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     // 表情包搜索联想：ESC/失焦置 true 隐藏，输入变化重新开启
     const [suggestClosed, setSuggestClosed] = useState(false);
@@ -679,7 +680,9 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     };
 
     const appendText = useCallback((text: string, options?: { focus?: boolean }) => {
-        setInputText(prev => prev + text);
+        const nextText = inputTextRef.current + text;
+        inputTextRef.current = nextText;
+        setInputText(nextText);
         requestAnimationFrame(() => {
             const ta = textareaRef.current;
             if (!ta) return;
@@ -692,6 +695,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     useImperativeHandle(ref, () => ({
         appendText,
         clear: () => {
+            inputTextRef.current = "";
             setInputText("");
             resetTextareaHeight();
         },
@@ -703,9 +707,10 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
             onStopGeneration();
             return;
         }
-        const trimmed = inputText.trim();
+        const trimmed = inputTextRef.current.trim();
         if (!trimmed) return;
         if (!onSendText(trimmed)) return;
+        inputTextRef.current = "";
         setInputText("");
         resetTextareaHeight();
         onClosePanels();
@@ -785,10 +790,11 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 onChange={e => {
                     const newValue = e.target.value;
                     const target = e.target;
-                    setInputText(newValue);
+                    inputTextRef.current = newValue;
                     setSuggestClosed(false);
-                    // 高度计算推到下一帧，避免阻塞输入响应
+                    // 高度计算和 state 更新都推到下一帧，打字本身不阻塞
                     requestAnimationFrame(() => {
+                        setInputText(newValue);
                         target.style.height = "auto";
                         target.style.height = Math.min(target.scrollHeight, 120) + "px";
                     });
