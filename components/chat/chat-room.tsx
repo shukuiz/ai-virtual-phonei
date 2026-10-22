@@ -783,10 +783,15 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 rows={1}
                 value={inputText}
                 onChange={e => {
-                    setInputText(e.target.value);
+                    const newValue = e.target.value;
+                    const target = e.target;
+                    setInputText(newValue);
                     setSuggestClosed(false);
-                    e.target.style.height = "auto";
-                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                    // 高度计算推到下一帧，避免阻塞输入响应
+                    requestAnimationFrame(() => {
+                        target.style.height = "auto";
+                        target.style.height = Math.min(target.scrollHeight, 120) + "px";
+                    });
                 }}
                 onFocus={(e) => {
                     if (panelOpen) {
@@ -1003,10 +1008,15 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
                 rows={1}
                 value={inputText}
                 onChange={e => {
-                    inputTextRef.current = e.target.value;
-                    setInputText(e.target.value);
-                    e.target.style.height = "auto";
-                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                    const newValue = e.target.value;
+                    const target = e.target;
+                    inputTextRef.current = newValue;
+                    setInputText(newValue);
+                    // 高度计算推到下一帧
+                    requestAnimationFrame(() => {
+                        target.style.height = "auto";
+                        target.style.height = Math.min(target.scrollHeight, 120) + "px";
+                    });
                 }}
                 onFocus={(e) => {
                     if (showEmojiPanel) {
